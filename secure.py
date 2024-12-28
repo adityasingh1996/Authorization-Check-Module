@@ -42,8 +42,14 @@ class SpinnerThread(threading.Thread):
    def stop(self):
        self.stop_event.set()
 
+def check_root():
+   if os.geteuid() != 0:
+       print(f"{Fore.RED}Error: This script requires root privileges{Style.RESET_ALL}")
+       sys.exit(1)
+       
 def validate_access():
    show_header()
+   check_root()
    current_week = datetime.now().isocalendar()[1]
    current_year = datetime.now().year
    
