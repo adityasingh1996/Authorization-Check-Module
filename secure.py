@@ -11,6 +11,12 @@ from cryptography.hazmat.primitives.asymmetric import padding
 
 init()
 
+# Constants and paths
+SECURE_DIR = os.path.dirname(os.path.abspath(__file__))
+PUBLIC_KEY_PATH = os.path.join(SECURE_DIR, 'public_key.pem')
+CACHE_FILE = os.path.join(SECURE_DIR, '.key_cache')
+VALIDATION_DURATION = 2
+
 def show_header():
    print(f"""
 {Fore.RED}--------------------------
@@ -18,21 +24,31 @@ Authorization Check Module
 --------------------------{Style.RESET_ALL}
 """)
 
-def circle_spinner():
-   while True:
-       for c in ['◜','◠','◝','◞','◡','◟']:
-           sys.stdout.write(f'\r{Fore.CYAN}Validating Key {c}{Style.RESET_ALL}')
-           sys.stdout.flush()
-           time.sleep(0.1)
+class SpinnerThread(threading.Thread):
+   def __init__(self):
+       super().__init__(daemon=True)
+       self.stop_event = threading.Event()
+       
+   def run(self):
+       start_time = time.time()
+       while not self.stop_event.is_set() and (time.time() - start_time) < VALIDATION_DURATION:
+           for c in ['◜','◠','◝','◞','◡','◟']:
+               if self.stop_event.is_set():
+                   break
+               sys.stdout.write(f'\r{Fore.CYAN}Validating Key {c}{Style.RESET_ALL}')
+               sys.stdout.flush()
+               time.sleep(0.1)
+               
+   def stop(self):
+       self.stop_event.set()
 
 def validate_access():
    show_header()
-   cache_file = '.key_cache'
    current_week = datetime.now().isocalendar()[1]
    current_year = datetime.now().year
    
-   if os.path.exists(cache_file):
-       with open(cache_file, 'r') as f:
+   if os.path.exists(CACHE_FILE):
+       with open(CACHE_FILE, 'r') as f:
            try:
                cache = json.load(f)
                if cache.get('key') and verify_key(cache['key'], current_year, current_week):
@@ -43,39 +59,26 @@ def validate_access():
    
    while True:
        key = input("\nEnter Key: ").strip()
-       stop_spinner = threading.Event()
-       
-       def spinner_with_stop():
-           start_time = time.time()
-           while not stop_spinner.is_set() and (time.time() - start_time) < 2:
-               for c in ['◜','◠','◝','◞','◡','◟']:
-                   if stop_spinner.is_set():
-                       break
-                   sys.stdout.write(f'\r{Fore.CYAN}Validating Key {c}{Style.RESET_ALL}')
-                   sys.stdout.flush()
-                   time.sleep(0.1)
-       
-       spinner = threading.Thread(target=spinner_with_stop)
-       spinner.daemon = True
+       spinner = SpinnerThread()
        spinner.start()
-       time.sleep(2)
+       time.sleep(VALIDATION_DURATION)
        
        if verify_key(key, current_year, current_week):
-           stop_spinner.set()
+           spinner.stop()
            sys.stdout.write('\r' + ' '*50 + '\r')
            print(f"{Fore.GREEN}✓ Key Validated{Style.RESET_ALL}")
-           with open(cache_file, 'w') as f:
+           with open(CACHE_FILE, 'w') as f:
                json.dump({'key': key}, f)
            return True
        
-       stop_spinner.set()
+       spinner.stop()
        sys.stdout.write('\r' + ' '*50 + '\r')
        print(f"{Fore.RED}✗ Invalid Key{Style.RESET_ALL}")
 
 def verify_key(key, year, week):
    try:
        signature = base64.b64decode(key)
-       with open('public_key.pem', 'rb') as f:
+       with open(PUBLIC_KEY_PATH, 'rb') as f:
            public_key = serialization.load_pem_public_key(f.read())
        public_key.verify(
            signature,
